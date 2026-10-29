@@ -1,0 +1,182 @@
+# Full regression: nightly + on demand (e.g. as the release gate on staging).
+#
+#  shards (x4)  -> unit + auth + app projects, fully parallel, sharded
+#  credits      -> reveal + export, ONE job, workers: 1, and a global concurrency group so
+#                  two pipelines can never spend the shared credit balance at the same time
+#  report       -> merges blob reports into one HTML report, uploads it, publishes to Pages,
+#                  writes a flaky test summary, notifies Slack
+#  cleanup      -> deletes anything this run created (prefix based), even if tests failed
+name: Nightly regression
+
+on:
+  schedule:
+    - cron: '17 15 * * 1-5' # ~01:17 Sydney on weekdays, quiet hours for staging
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Environment to test (preview URL, staging, ...)
+        required: false
+        default: https://staging.firmable.com
+      cross_browser:
+        description: Also run smoke on Firefox, WebKit and mobile
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  BASE_URL: ${{ inputs.base_url || vars.BASE_URL || 'https://staging.firmable.com' }}
+  FIRMABLE_USER_EMAIL: ${{ secrets.FIRMABLE_USER_EMAIL }}
+  FIRMABLE_USER_PASSWORD: ${{ secrets.FIRMABLE_USER_PASSWORD }}
+  TEST_DATA_PREFIX: qa-as-ci-${{ github.run_id }}
+  CROSS_BROWSER: ${{ inputs.cross_browser && '1' || '' }}
+
+jobs:
+  shards:
+    name: regression shard ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false # see ALL failures, not just the first shard's
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps ${{ env.CROSS_BROWSER && 'chromium firefox webkit' || 'chromium' }}
+      - name: Run shard
+        run: >
+          npx playwright test
+          --project=unit --project=auth --project=app
+          ${{ env.CROSS_BROWSER && '--project=firefox-smoke --project=webkit-smoke --project=mobile-smoke' || '' }}
+          --grep-invert @quarantine
+          --shard=${{ matrix.shard }}/4
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: blob-shard-${{ matrix.shard }}
+          path: blob-report
+          retention-days: 3
+
+  credits:
+    name: credit spending tests (serial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: staging-credit-balance # global lock on the shared credit balance
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=credits --grep-invert @quarantine
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: blob-credits
+          path: blob-report
+          retention-days: 3
+
+  quarantine:
+    name: quarantined tests (non blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true # informs, never blocks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:quarantine -- --pass-with-no-tests
+
+  report:
+    name: merge report, flaky summary, notify
+    if: ${{ !cancelled() }}
+    needs: [shards, credits]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: blob-*
+          path: all-blob-reports
+          merge-multiple: true
+
+      - name: Merge into one HTML + JSON report
+        run: |
+          npx playwright merge-reports --reporter html ./all-blob-reports
+          PLAYWRIGHT_JSON_OUTPUT_NAME=merged-results.json npx playwright merge-reports --reporter json ./all-blob-reports
+
+      - name: Restore flaky history
+        uses: actions/cache/restore@v4
+        with:
+          path: flaky-history
+          key: flaky-history-${{ github.run_id }}
+          restore-keys: flaky-history-
+
+      - name: Flaky test summary
+        run: npm run flaky:report -- merged-results.json flaky-history >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save flaky history
+        uses: actions/cache/save@v4
+        with:
+          path: flaky-history
+          key: flaky-history-${{ github.run_id }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: regression-report-${{ github.run_id }}
+          path: playwright-report
+          retention-days: 30
+
+      - name: Publish report to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playwright-report
+      - uses: actions/deploy-pages@v4
+        id: pages
+        continue-on-error: true
+
+      - name: Slack notification
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        env:
+          RESULT: ${{ needs.shards.result == 'success' && needs.credits.result == 'success' && 'passed' || 'FAILED' }}
+          REPORT_URL: ${{ steps.pages.outputs.page_url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        run: |
+          ICON=$([ "$RESULT" = "passed" ] && echo ":white_check_mark:" || echo ":red_circle:")
+          curl -sS -X POST -H 'Content-type: application/json' "$SLACK_WEBHOOK_URL" --data @- <<EOF
+          {"text":"$ICON Firmable E2E regression *$RESULT* on ${BASE_URL}\nReport: $REPORT_URL\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+          EOF
+
+  cleanup:
+    name: delete test data created by this run
+    if: ${{ always() }}
+    needs: [shards, credits]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run cleanup

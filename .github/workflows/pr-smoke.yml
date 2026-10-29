@@ -1,0 +1,68 @@
+# Fast feedback on every pull request.
+# Scope: @smoke tests, EXCLUDING anything that spends real credits (@credits).
+# Credit spending runs nightly and before release, never once per PR push.
+name: PR smoke
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pr-smoke-${{ github.ref }}
+  cancel-in-progress: true # a new push makes the old run irrelevant
+
+permissions:
+  contents: read
+
+env:
+  BASE_URL: ${{ vars.BASE_URL || 'https://staging.firmable.com' }}
+  FIRMABLE_USER_EMAIL: ${{ secrets.FIRMABLE_USER_EMAIL }}
+  FIRMABLE_USER_PASSWORD: ${{ secrets.FIRMABLE_USER_PASSWORD }}
+  TEST_DATA_PREFIX: qa-as-ci-${{ github.run_id }}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Static checks (types, test discovery)
+        run: |
+          npm run typecheck
+          npx playwright test --list > /dev/null
+
+      - name: Smoke (no credit spend)
+        run: npx playwright test --grep @smoke --grep-invert "@credits|@quarantine"
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report-${{ github.run_id }}
+          path: reports/html
+          retention-days: 14
+
+      - name: Upload traces and videos (failures only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-results-${{ github.run_id }}
+          path: test-results
+          retention-days: 7
