@@ -1,0 +1,32 @@
+{
+  "name": "firmable-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End to end release suite for the Firmable web app (Playwright + TypeScript)",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test --grep @smoke --grep-invert @quarantine",
+    "test:regression": "playwright test --grep-invert @quarantine",
+    "test:quarantine": "playwright test --grep @quarantine --retries=0",
+    "test:headed": "playwright test --headed --workers=1",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report reports/html",
+    "trace": "playwright show-trace",
+    "typecheck": "tsc --noEmit",
+    "lint:list": "playwright test --list",
+    "flaky:report": "tsx scripts/flaky-report.ts",
+    "cleanup": "tsx scripts/cleanup-stale-data.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^22.10.0",
+    "dotenv": "^16.4.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
