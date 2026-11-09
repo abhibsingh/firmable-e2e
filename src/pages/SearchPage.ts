@@ -4,7 +4,8 @@ import { FilterPanel } from '../components/FilterPanel';
 import { ResultsTable } from '../components/ResultsTable';
 import { SidePanel } from '../components/SidePanel';
 import { AppShell } from '../components/AppShell';
-import { api, routes } from '../config/routes';
+import { routes } from '../config/routes';
+import { parseTabCount } from '../utils/text';
 
 export type Entity = 'companies' | 'people';
 
@@ -16,11 +17,9 @@ export class SearchPage extends BasePage {
   readonly results: ResultsTable;
   readonly sidePanel: SidePanel;
 
-  readonly keywordInput: Locator;
-  readonly aiSearchToggle: Locator;
   readonly aiSearchInput: Locator;
   readonly addToListButton: Locator;
-  readonly exportButton: Locator;
+  readonly downloadButton: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -28,55 +27,66 @@ export class SearchPage extends BasePage {
     this.filters = new FilterPanel(page);
     this.results = new ResultsTable(page);
     this.sidePanel = new SidePanel(page);
+    this.aiSearchInput = page.getByRole('textbox', { name: 'AI search' });
+    this.addToListButton = page.getByRole('button', { name: /^Add to list/ });
+    this.downloadButton = page.getByText(/^Download( \(\d+\))?$/).first();
+  }
 
-    this.keywordInput = page
-      .getByTestId('keyword-search')
-      .or(page.getByRole('searchbox'))
-      .or(page.getByPlaceholder(/search (by )?(keyword|companies|people|name)/i))
-      .first();
-    this.aiSearchToggle = page.getByRole('tab', { name: /ai search/i }).or(page.getByRole('button', { name: /ai search/i })).first();
-    this.aiSearchInput = page.getByPlaceholder(/describe|ask|who are you looking for/i).or(page.getByTestId('ai-search-input')).first();
-    this.addToListButton = page.getByRole('button', { name: /add to list|save to list/i }).first();
-    this.exportButton = page.getByRole('button', { name: /export|download/i }).first();
+  tab(entity: Entity): Locator {
+    return this.page.getByRole('button', { name: entity === 'companies' ? /^Companies \(/ : /^People \(/ });
   }
 
   async waitUntilReady(): Promise<void> {
     await this.shell.expectSignedIn();
+    await expect(this.tab('companies')).toHaveText(/\([\d,]+\)/, { timeout: 30_000 });
     await this.results.waitForLoaded();
   }
 
   async open(entity: Entity): Promise<void> {
-    await this.page.goto(entity === 'companies' ? routes.companiesSearch : routes.peopleSearch);
-    await this.waitUntilReady();
+    await this.goto();
+    if (entity === 'people') await this.switchTo('people');
   }
 
-  private async runSearch(action: () => Promise<unknown>): Promise<void> {
-    await this.actAndWaitForResponse(api.search, action);
+  async switchTo(entity: Entity): Promise<void> {
+    await this.tab(entity).click();
     await this.results.waitForLoaded();
   }
 
-  async keywordSearch(term: string): Promise<void> {
-    await this.runSearch(async () => {
-      await this.keywordInput.fill(term);
-      await this.keywordInput.press('Enter');
-    });
+  /** Total from the tab label, e.g. "Companies (2,066,723)". Not capped like the pager (max 10,000). */
+  async total(entity: Entity = 'companies'): Promise<number> {
+    return parseTabCount(await this.tab(entity).innerText());
+  }
+
+  /** Every search action waits until the tab count actually changes. */
+  private async expectCountChange(entity: Entity, before: number): Promise<number> {
+    await expect.poll(() => this.total(entity), { timeout: 30_000 }).not.toBe(before);
+    await this.results.waitForLoaded();
+    return this.total(entity);
+  }
+
+  async keywordSearch(term: string, entity: Entity = 'companies'): Promise<number> {
+    const before = await this.total(entity);
+    await this.results.headerSearch(entity === 'companies' ? /Search by Company name/ : /Search by People name/, term);
+    return this.expectCountChange(entity, before);
   }
 
   async aiSearch(prompt: string): Promise<void> {
-    await this.aiSearchToggle.click();
-    await this.runSearch(async () => {
-      await this.aiSearchInput.fill(prompt);
-      await this.aiSearchInput.press('Enter');
-    });
+    const before = await this.total('companies');
+    await this.aiSearchInput.fill(prompt);
+    await this.aiSearchInput.press('Enter');
+    await this.expectCountChange('companies', before);
   }
 
-  async applyFilter(filterName: string, value: string): Promise<void> {
-    await this.runSearch(() => this.filters.select(filterName, value));
-    await this.filters.expectApplied(value);
+  async applyFilter(filter: string, key: string, value: string, entity: Entity = 'companies'): Promise<number> {
+    const before = await this.total(entity);
+    await this.filters.include(filter, key, value);
+    return this.expectCountChange(entity, before);
   }
 
-  async clearFilters(): Promise<void> {
-    await this.runSearch(() => this.filters.clearAllButton.click());
+  async clearFilters(entity: Entity = 'companies'): Promise<number> {
+    const before = await this.total(entity);
+    await this.filters.clearAllButton.click();
+    return this.expectCountChange(entity, before);
   }
 
   async previewRow(index: number): Promise<string> {
@@ -85,34 +95,48 @@ export class SearchPage extends BasePage {
     return name;
   }
 
+  /** Popover: "Search or create a new list". Picks an existing list by name. */
   async addSelectedToList(listName: string): Promise<void> {
     await this.addToListButton.click();
-    const dialog = this.page.getByRole('dialog').last();
-    const listOption = dialog
-      .getByRole('option', { name: listName })
-      .or(dialog.getByRole('checkbox', { name: listName }))
-      .or(dialog.getByText(listName, { exact: true }))
-      .first();
-    const search = dialog.getByRole('combobox').or(dialog.getByPlaceholder(/search lists?/i)).first();
-    if (await search.isVisible()) await search.fill(listName);
-    const confirm = dialog.getByRole('button', { name: /^(add|save|done|confirm)$/i }).first();
-    await this.clickWithOptionalConfirm(listOption, confirm, api.lists, { nonGetOnly: true });
-    await expect(this.toast(/added|saved/i).first()).toBeVisible();
+    const box = this.page.getByPlaceholder('Search or create a new list');
+    await box.fill(listName);
+    await this.page.getByText(listName, { exact: true }).last().click();
+    const confirm = this.page.getByRole('button', { name: /^(add|save|done|confirm)$/i }).last();
+    await expect(confirm.or(this.page.getByText(/added|saved/i).first())).toBeVisible();
+    if (await confirm.isVisible()) await confirm.click();
+    await expect(this.page.getByText(/added|saved/i).first()).toBeVisible();
   }
 
-  async exportSelected(): Promise<Download> {
-    const downloadPromise = this.page.waitForEvent('download', { timeout: 60_000 });
-    await this.exportButton.click();
-    const confirm = this.page.getByRole('dialog').getByRole('button', { name: /^(export|download|confirm)/i }).first();
-    const first = await Promise.race([
-      downloadPromise.then(() => 'download' as const),
-      confirm.waitFor({ state: 'visible' }).then(() => 'dialog' as const),
+  /** "Export as XLSX" dialog. Tech Intelligence is unticked so we only spend 1 credit per record. */
+  async exportSelected(): Promise<{ recordCount: number }> {
+    await this.downloadButton.click();
+    const dialog = this.page.getByRole('dialog').filter({ hasText: 'Export as XLSX' });
+    await expect(dialog).toBeVisible();
+    const recordCount = Number((await dialog.innerText()).match(/export (\d+) record/i)?.[1]);
+    const techIntel = dialog.getByRole('checkbox', { name: /Include Tech Intelligence/i });
+    if (await techIntel.isChecked()) await techIntel.uncheck();
+    await expect(techIntel).not.toBeChecked();
+    await dialog.getByRole('button', { name: 'Export' }).click();
+    await expect(dialog).toBeHidden();
+    return { recordCount };
+  }
+
+  async downloadFromCentre(): Promise<{ download: Download; row: Locator }> {
+    await this.page.goto(routes.downloadCenter);
+    const newest = this.page.locator('table tbody tr').first();
+    await expect
+      .poll(
+        async () => {
+          await this.page.reload();
+          return (await newest.innerText().catch(() => '')).toLowerCase();
+        },
+        { timeout: 120_000, intervals: [5_000, 10_000], message: 'export should complete in the Download Centre' },
+      )
+      .toMatch(/complete|ready|success|done/);
+    const [download] = await Promise.all([
+      this.page.waitForEvent('download'),
+      newest.getByRole('button').or(newest.getByRole('link')).last().click(),
     ]);
-    if (first === 'dialog') {
-      const csvChoice = this.page.getByRole('dialog').getByRole('radio', { name: /csv/i }).first();
-      if (await csvChoice.isVisible()) await csvChoice.check();
-      await confirm.click();
-    }
-    return downloadPromise;
+    return { download, row: newest };
   }
 }

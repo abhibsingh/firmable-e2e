@@ -12,8 +12,8 @@ export class SignInPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.emailInput = page.getByLabel(/email address/i).or(page.locator('input[name="identifier"]')).first();
-    this.passwordInput = page.getByLabel(/^password$/i).or(page.locator('input[name="password"]')).first();
+    this.emailInput = page.locator('input[name="identifier"]');
+    this.passwordInput = page.locator('input[name="password"]');
     this.continueButton = page.getByRole('button', { name: /^(continue|sign in)$/i }).first();
     this.formError = page
       .locator('.cl-formFieldErrorText, .cl-alertText, [id$="-error-feedback"], [role="alert"]')
@@ -21,12 +21,13 @@ export class SignInPage extends BasePage {
   }
 
   async waitUntilReady(): Promise<void> {
-    await expect(this.emailInput).toBeVisible();
+    await expect(this.emailInput).toBeVisible({ timeout: 30_000 });
   }
 
   async signIn(email: string, password: string): Promise<void> {
     await this.emailInput.fill(email);
-    await this.continueButton.click();
+    // Clerk shows the password on the same screen or on a second step depending on configuration
+    if (!(await this.passwordInput.isVisible())) await this.continueButton.click();
     await expect(this.passwordInput).toBeVisible();
     await this.passwordInput.fill(password);
     await this.continueButton.click();
