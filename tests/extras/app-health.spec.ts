@@ -1,7 +1,8 @@
 import { test, expect } from '../../src/fixtures/test';
+import { routes } from '../../src/config/routes';
 
-for (const path of ['/search/companies', '/search/people', '/lists']) {
-  test(`health: ${path} loads without JS errors or 5xx`, { tag: ['@smoke', '@health'] }, async ({ page }) => {
+for (const path of [routes.dashboard, routes.search, routes.lists, routes.downloadCenter]) {
+  test(`health: ${path} loads without JS errors or 5xx`, { tag: ['@smoke', '@health'] }, async ({ page, appShell }) => {
     const pageErrors: string[] = [];
     const serverErrors: string[] = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -11,8 +12,8 @@ for (const path of ['/search/companies', '/search/people', '/lists']) {
 
     const start = Date.now();
     await page.goto(path);
-    await expect(page.getByRole('navigation').first()).toBeVisible();
-    await expect(page.getByRole('table').or(page.getByRole('grid')).or(page.getByRole('main')).first()).toBeVisible();
+    await appShell.expectSignedIn();
+    await expect(appShell.root).toBeVisible();
     const elapsed = Date.now() - start;
 
     test.info().annotations.push({ type: 'load-ms', description: String(elapsed) });
