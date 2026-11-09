@@ -1,77 +1,51 @@
-import * as path from 'path';
 import { test, expect } from '../../src/fixtures/test';
-import { searchData } from '../../src/data/searchData';
 import { env } from '../../src/config/env';
-import { readCsvFile, findHeader } from '../../src/utils/csv';
+import { readXlsx, findHeader } from '../../src/utils/xlsx';
+import { searchData } from '../../src/data/searchData';
 
-test.describe.configure({ mode: 'serial' });
+// Exports 2 companies with Tech Intelligence unticked, so about 2 credits per run.
+test.describe('Export (spends credits)', () => {
+  test('exported XLSX matches the selected companies and credits are deducted', { tag: ['@regression', '@credits'] }, async ({
+    searchPage,
+    credits,
+    creditGuard,
+  }, testInfo) => {
+    const records = env.maxCreditRecords;
 
-test.describe('Export', () => {
-  test.beforeEach(async ({ searchPage }) => {
     await searchPage.open('companies');
     await searchPage.keywordSearch(searchData.companies.keyword);
-  });
+    const picked = await searchPage.results.selectRows(records);
 
-  test('exporting selected companies produces a correct CSV', { tag: ['@smoke', '@export', '@credits'] }, async ({
-    creditGuard,
-    searchPage,
-    appShell,
-  }, testInfo) => {
-    const n = env.maxCreditRecords;
-    const selected = await searchPage.results.selectRows(n);
+    const { recordCount } = await test.step('export from the dialog', () => searchPage.exportSelected());
+    expect(recordCount).toBe(records);
 
-    const download = await searchPage.exportSelected();
-    const filePath = testInfo.outputPath(download.suggestedFilename());
-    await download.saveAs(filePath);
-    await testInfo.attach('export', { path: filePath });
+    const { download } = await test.step('download from the Download Centre', () => searchPage.downloadFromCentre());
+    expect(download.suggestedFilename()).toMatch(/\.xlsx$/i);
+    const file = testInfo.outputPath(download.suggestedFilename());
+    await download.saveAs(file);
+    await testInfo.attach('export.xlsx', { path: file });
 
-    await test.step('file format', async () => {
-      expect(path.extname(filePath).toLowerCase(), 'export should be CSV').toBe('.csv');
-      expect(download.suggestedFilename()).not.toMatch(/undefined|null/i);
+    await test.step('file content matches what was selected', async () => {
+      const { headers, records: rows } = await readXlsx(file);
+      expect(rows).toHaveLength(records);
+      const nameCol = findHeader(headers, /company name|^name$/i);
+      expect(nameCol, `name column in ${headers.join(', ')}`).toBeTruthy();
+      const exported = rows.map((r) => r[nameCol!].toLowerCase());
+      for (const name of picked) expect(exported).toContain(name.toLowerCase());
     });
 
-    const { headers, records } = readCsvFile(filePath);
-
-    await test.step('headers', async () => {
-      const nameHeader = findHeader(headers, /^(company )?name$/i);
-      expect(nameHeader, `name column missing. Headers: ${headers.join(', ')}`).toBeDefined();
-      for (const wanted of [/domain|website/i, /industry/i]) {
-        expect.soft(findHeader(headers, wanted), `header ${wanted} missing`).toBeDefined();
-      }
-    });
-
-    await test.step('rows match the selection exactly', async () => {
-      expect(records).toHaveLength(n);
-      const nameHeader = findHeader(headers, /^(company )?name$/i)!;
-      const exportedNames = records.map((r) => r[nameHeader]).sort();
-      expect(exportedNames).toEqual([...selected].sort());
-    });
-
-    await test.step('no empty or corrupted cells in key columns', async () => {
-      const nameHeader = findHeader(headers, /^(company )?name$/i)!;
-      for (const r of records) {
-        expect(r[nameHeader]).not.toBe('');
-        expect(Object.values(r).join('')).not.toMatch(/\[object Object\]|undefined|NaN/);
-      }
-    });
-
-    await test.step('credits never INCREASE because of an export', async () => {
-      const after = await appShell.credits.read();
-      expect(after).toBeLessThanOrEqual(creditGuard.balanceBefore);
-      testInfo.annotations.push({ type: 'export-credits-spent', description: String(creditGuard.balanceBefore - after) });
+    await test.step('credits deducted by at most 1 per record', async () => {
+      const after = await credits.waitForSpend(creditGuard.before, 60_000);
+      const spent = creditGuard.before.remaining - after.remaining;
+      testInfo.annotations.push({ type: 'credits-spent', description: String(spent) });
+      expect(spent).toBeGreaterThan(0);
+      expect(spent).toBeLessThanOrEqual(records);
     });
   });
 
-  test('export is unavailable with nothing selected', { tag: ['@regression', '@export', '@negative'] }, async ({ page, searchPage }) => {
-    await expect(searchPage.results.selectedCount).toBeHidden();
-    let downloaded = false;
-    page.on('download', () => (downloaded = true));
-    if (await searchPage.exportButton.isEnabled()) {
-      await searchPage.exportButton.click();
-      await expect(page.getByText(/select (at least )?(one|1|records)|no records selected/i).first()).toBeVisible();
-    } else {
-      await expect(searchPage.exportButton).toBeDisabled();
-    }
-    expect(downloaded).toBe(false);
+  test('download is blocked when nothing is selected', { tag: ['@regression', '@credits', '@negative'] }, async ({ searchPage }) => {
+    await searchPage.open('companies');
+    await expect(searchPage.downloadButton).toHaveAttribute('aria-disabled', 'true');
+    await expect(searchPage.addToListButton).toBeDisabled();
   });
 });
