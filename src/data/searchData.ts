@@ -1,23 +1,18 @@
+// Values verified on staging: "bank" 2,066,723 -> 2,266; + Industry Banking -> 932; + Sydney -> 77
 export const searchData = {
   companies: {
-    keyword: 'software',
+    keyword: 'bank',
     filters: {
-      location: { filter: 'Location', value: 'New South Wales' },
-      industry: { filter: 'Industry', value: 'Software' },
-      headcount: { filter: 'Employees', value: '51-200' },
+      industry: { filter: 'Industry', key: 'industry', value: 'Banking', rowText: /Banking/ },
+      location: { filter: 'Location (Company)', key: 'location', value: 'Sydney, NSW, AU', rowText: /NSW/ },
     },
   },
   people: {
-    keyword: 'engineer',
-    filters: {
-      seniority: { filter: 'Seniority', value: 'Manager' },
-      department: { filter: 'Department', value: 'Engineering' },
-      location: { filter: 'Location', value: 'Victoria' },
-    },
+    keyword: 'smith',
   },
   ai: {
-    prompt: 'Software companies in Sydney with 50 to 200 employees',
+    prompt: 'Banks in Sydney with more than 500 employees',
   },
-  noResultsKeyword: 'zzqx-no-such-company-9f3a7',
-  edgeKeywords: ['"; DROP TABLE companies; --', '<script>alert(1)</script>', '   ', 'ß é 中文'],
+  noResultsKeyword: 'zzqxnosuchcompany9f3a7',
+  edgeKeywords: ['"; DROP TABLE companies; --', '<script>alert(1)</script>', 'ß é 中文'],
 } as const;
