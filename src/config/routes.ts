@@ -1,17 +1,18 @@
+// Calibrated against staging.firmable.com
 export const routes = {
   signIn: '/sign-in',
   signUp: '/sign-up',
-  search: '/search',
-  companiesSearch: '/search/companies',
-  peopleSearch: '/search/people',
-  lists: '/lists',
-  settings: '/settings',
+  dashboard: '/dashboard',
+  search: '/dashboard/search/new',
+  lists: '/dashboard/list',
+  downloadCenter: '/dashboard/download-center',
+  credits: '/dashboard/profile?selected=credits',
+  company: (id: string) => `/dashboard/company/${id}`,
+  person: (id: string) => `/dashboard/people/${id}`,
 } as const;
 
-export const api = {
-  search: /\/api\/.*(search|query|companies|people).*$/i,
-  reveal: /\/api\/.*(reveal|unlock|contact).*$/i,
-  credits: /\/api\/.*(credit|usage|balance|billing).*$/i,
-  lists: /\/api\/.*lists?.*$/i,
-  export: /\/api\/.*(export|download).*$/i,
+export const urlPatterns = {
+  company: /\/dashboard\/company\/[^/]+$/,
+  person: /\/dashboard\/people\/[^/]+$/,
+  listDetail: /\/dashboard\/list\/[0-9a-f-]{36}$/,
 } as const;
