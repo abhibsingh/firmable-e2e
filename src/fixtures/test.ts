@@ -7,6 +7,7 @@ import { CompanyProfilePage } from '../pages/CompanyProfilePage';
 import { PersonProfilePage } from '../pages/PersonProfilePage';
 import { ListsPage } from '../pages/ListsPage';
 import { AppShell } from '../components/AppShell';
+import { CreditBalance } from '../components/CreditBalance';
 import { uniqueName, newUserProfile, type NewUser } from '../data/testData';
 import { env } from '../config/env';
 
@@ -25,7 +26,8 @@ type Fixtures = {
   uniqueName: (kind: string) => string;
   newUser: NewUser;
   list: { name: string };
-  creditGuard: { balanceBefore: number };
+  credits: CreditBalance;
+  creditGuard: { before: { remaining: number; used: number } };
 };
 
 export const test = base.extend<Fixtures>({
@@ -63,16 +65,16 @@ export const test = base.extend<Fixtures>({
     await use({ name });
   },
 
-  creditGuard: async ({ appShell, page }, use, testInfo) => {
-    await page.goto('/');
-    await appShell.expectSignedIn();
-    const balanceBefore = await appShell.credits.read();
-    testInfo.annotations.push({ type: 'credits-before', description: String(balanceBefore) });
+  credits: async ({ page }, use) => use(new CreditBalance(page)),
+
+  creditGuard: async ({ credits }, use, testInfo) => {
+    const before = await credits.read();
+    testInfo.annotations.push({ type: 'credits-before', description: `${before.remaining} remaining, ${before.used} used` });
     test.skip(
-      balanceBefore < env.minCreditsForSpendTests,
-      `Credit balance ${balanceBefore} below safety floor ${env.minCreditsForSpendTests}. Top up the test account.`,
+      before.remaining < env.minCreditsForSpendTests,
+      `Only ${before.remaining} credits left, below the safety floor of ${env.minCreditsForSpendTests}.`,
     );
-    await use({ balanceBefore });
+    await use({ before });
   },
 });
 
