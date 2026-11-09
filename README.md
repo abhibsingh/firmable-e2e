@@ -26,9 +26,9 @@ npm test                      # everything
 
 | Command | What it runs |
 |---|---|
-| `npm run test:smoke` | `@smoke` tests only (13 E2E journeys plus helper checks, a few minutes) |
+| `npm run test:smoke` | `@smoke` tests only (a few minutes) |
 | `npm run test:regression` | Everything except `@quarantine` |
-| `npx playwright test --project=credits` | Only the credit spending tests (serial) |
+| `RUN_CREDIT_TESTS=1 npx playwright test --project=credits` | Credit spending tests (reveal, export). Off by default to protect the 25 credit budget |
 | `npx playwright test --grep @lists` | One feature area by tag |
 | `npm run test:headed` | Watch it run in a real browser, one worker |
 | `npm run test:ui` | Playwright UI mode (time travel debugging) |
@@ -50,9 +50,9 @@ Secrets are **never** committed: `.env` is gitignored, CI reads GitHub Actions s
 ├── src/
 │   ├── config/
 │   │   ├── env.ts              # typed, validated env (single source of truth)
-│   │   └── routes.ts           # app routes + API URL patterns used for waits
+│   │   └── routes.ts           # app routes and URL patterns
 │   ├── pages/                  # Page Objects: one per screen, expose INTENT
-│   │   ├── BasePage.ts         # shared waits: actAndWaitForResponse, clickWithOptionalConfirm
+│   │   ├── BasePage.ts         # goto + waitUntilReady contract
 │   │   ├── SignInPage.ts  SignUpPage.ts  OnboardingPage.ts
 │   │   ├── SearchPage.ts  CompanyProfilePage.ts  PersonProfilePage.ts
 │   │   └── ListsPage.ts
@@ -61,7 +61,7 @@ Secrets are **never** committed: `.env` is gitignored, CI reads GitHub Actions s
 │   │   ├── ResultsTable.ts  SidePanel.ts  ContactReveal.ts
 │   ├── fixtures/test.ts        # custom fixtures: page objects, cleanup registry, list, creditGuard
 │   ├── data/                   # unique data factory + stable search inputs
-│   └── utils/                  # CSV parser, count parser, regexes
+│   └── utils/                  # XLSX reader, count parsers, regexes
 ├── tests/
 │   ├── unit/                   # browserless tests for the helpers above
 │   ├── setup/auth.setup.ts     # sign in once, save storageState
@@ -81,11 +81,11 @@ Secrets are **never** committed: `.env` is gitignored, CI reads GitHub Actions s
 
 | Project | Purpose | Parallel | Session |
 |---|---|---|---|
-| `unit` | Helper tests (CSV, counts, data factory) | yes | none |
+| `unit` | Helper tests (XLSX, counts, data factory) | yes | none |
 | `setup` | Signs in once, writes `.auth/user.json` | n/a | creates it |
 | `auth` | Sign up, sign in, sign out, invalid credentials | yes | **fresh** (no cookies) |
 | `app` | Search, profiles, lists, a11y, health | yes | stored session |
-| `credits` | Reveal + export | **no, `workers: 1`** | stored session |
+| `credits` | Reveal + export, only with `RUN_CREDIT_TESTS=1` | **no, `workers: 1`** | stored session |
 | `firefox-smoke`, `webkit-smoke`, `mobile-smoke` | Opt in with `CROSS_BROWSER=1` | yes | stored session |
 
 ### Tags
@@ -107,9 +107,8 @@ The suite is a release gate, so it has to be deterministic and debuggable. Playw
 - `creditGuard` fixture reads the balance first and **skips** (with a reason in the report) if it is under `MIN_CREDITS_FOR_SPEND_TESTS`.
 - Each test touches at most `MAX_CREDIT_RECORDS` records (default 2).
 - The reveal test picks a contact that is **not yet revealed**, because revealing again is free and would make the deduction check flaky.
-- It also asserts the most important billing rule: revealing the same contact again does **not** charge twice.
-- "Insufficient credits" is tested with network mocking (`page.route` returns 402), so it costs nothing.
-- Credit spending tests do **not** run on every PR, only nightly and on release.
+- Export unticks **Include Tech Intelligence** (ticked by default, up to 5 extra credits per company), so an export of 2 records costs about 2 credits.
+- Credit spending tests are opt in (`RUN_CREDIT_TESTS=1`): never on PRs, only nightly and on release.
 
 **4. Search asserts invariants, not numbers.**
 Staging data changes, so exact counts would be flaky by design. Instead: a filter never increases the count, rows honour the filter, the page never shows more rows than the total, clearing filters restores the baseline, and the empty state appears for nonsense input.
@@ -118,13 +117,13 @@ Staging data changes, so exact counts would be flaky by design. Instead: a filte
 Every name and email is `TEST_DATA_PREFIX + worker index + time + random` (e.g. `qa-as-list-w2-lx3k9-a1b2c3`). Tests create what they need and register teardown in a LIFO `cleanup` fixture that runs **even when the test fails**. A nightly prefix based cleanup script is the safety net. In CI the prefix includes the run id, so cleanup only touches that run's data.
 
 **6. No sleeps anywhere.**
-Waits are tied to real signals: `waitForResponse` on the API that the action triggers, web first assertions, `expect.poll` for values that update asynchronously (credit badge), and `Promise.race` between "confirm dialog appears" and "API responded" for flows that may or may not ask for confirmation.
+Waits are tied to visible signals: every search action waits until the tab count ("Companies (2,266)") changes, web first assertions everywhere, and `expect.poll` for things that update asynchronously (credit balance, export status in the Download Centre).
 
 **7. Locators: accessible first.**
-Order of preference: `getByRole` / `getByLabel` → `data-testid` → stable attributes (Clerk's `name=`). They live only in page objects and components, so a UI change is a one file fix. Where the app lacks good hooks, the suggestion to the dev team is to add `data-testid` on: results table, results count, credit balance, side panel, list rows.
+Order of preference: `getByRole` / `getByLabel` → the app's own `data-elements` hooks (nav, filters, lists) → stable attributes (Clerk's `name=`). They live only in page objects and components, so a UI change is a one file fix. Suggestion to the dev team: add hooks on the credits card and the quick view panel.
 
 **8. Debuggability built in.**
-On failure: trace (`retain-on-failure`), video, screenshot. Specs use `test.step` so the report reads like a user journey. Business data is attached as annotations (credits before / spent, counts at each filter step, the revealed person, the exported CSV file itself), so a failure explains itself without rerunning.
+On failure: trace (`retain-on-failure`), video, screenshot. Specs use `test.step` so the report reads like a user journey. Business data is attached as annotations (credits before / spent, counts at each filter step, the revealed person, the exported XLSX file itself), so a failure explains itself without rerunning.
 
 ---
 
@@ -156,10 +155,19 @@ Required secrets: `FIRMABLE_USER_EMAIL`, `FIRMABLE_USER_PASSWORD`. Optional: `SL
 
 ---
 
-## 6. Known limitations and assumptions
+## 6. Staging findings (calibration notes)
 
-- Selectors were written against Clerk's standard components and common patterns; a short calibration pass against staging (with the trace viewer / codegen) is expected for app specific screens. All of them live in `src/pages` and `src/components`.
-- API URL patterns in `src/config/routes.ts` are intentionally broad and should be tightened after one look at the Network tab.
+Calibrated by hand against staging.firmable.com before writing selectors:
+
+- Routes live under `/dashboard`: search `/dashboard/search/new`, lists `/dashboard/list`, Download Centre `/dashboard/download-center`, credits `/dashboard/profile?selected=credits`.
+- Totals come from the tab labels (`Companies (2,066,723)`); the pager is capped at 10,000, so it is not used for counts.
+- Verified narrowing: keyword `bank` 2,066,723 → 2,266, plus Industry Banking → 932, plus Location Sydney, NSW, AU → 77.
+- Export is **asynchronous**: the dialog queues an XLSX, which appears in the Download Centre (and by email). The test polls the Download Centre, downloads the file and parses it with `exceljs`.
+- The export dialog ticks **Include Tech Intelligence** by default (up to 5 credits per company). The suite always unticks it.
+- The account starts with 25 subscription credits, read from the credits page (subscription card only, the add on card is ignored).
+
+## 7. Known limitations and assumptions
+
+- Flows I did not exercise by hand (to save credits or data): the reveal confirm step, the rename dialog fields, the Download Centre action button and the exported column names. These are written defensively and are the first place to look if a test fails on the first run.
 - Sign up creates real (test mode) accounts on staging; they carry the prefix so they can be purged. If Firmable exposes a Clerk backend key for staging, teardown can delete them via API (roadmap).
 - The negative sign in test makes one failed attempt per run against the shared account. If Clerk lockout thresholds are low, point it at a dedicated "lockout canary" account instead.
-- If export produces XLSX instead of CSV, add a parser (`exceljs`) behind `readCsvFile`'s interface; the test logic stays the same.

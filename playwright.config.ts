@@ -86,14 +86,15 @@ export default defineConfig({
       testIgnore: ['**/auth/**', '**/credits/**', '**/setup/**', '**/unit/**'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, ...loggedIn },
     },
-    {
+    // Spends real credits (about 3 per run), so it only runs when asked: RUN_CREDIT_TESTS=1
+    ...(process.env.RUN_CREDIT_TESTS === '1' ? [{
       name: 'credits',
       testDir: './tests/credits',
       dependencies: ['setup'],
       fullyParallel: false,
       workers: 1, // these tests share one credit balance
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, ...loggedIn },
-    },
+    }] : []),
     ...crossBrowser,
   ],
 });
