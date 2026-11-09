@@ -1,37 +1,36 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { routes, urlPatterns } from '../config/routes';
 
+/** Full company view: /dashboard/company/<id> */
 export class CompanyProfilePage extends BasePage {
-  readonly path = '/company';
-  readonly heading: Locator;
-  readonly tabs: Locator;
-  readonly website: Locator;
+  readonly path = routes.dashboard;
+  readonly backButton: Locator;
+  readonly profileTab: Locator;
   readonly peopleTab: Locator;
-  readonly notFound: Locator;
+  readonly addToListButton: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.heading = page.getByRole('heading', { level: 1 }).first();
-    this.tabs = page.getByRole('tablist').first();
-    this.website = page.getByRole('link', { name: /https?:\/\/|www\.|\.com|\.au/i }).first();
-    this.peopleTab = page.getByRole('tab', { name: /people|employees|contacts/i }).first();
-    this.notFound = page.getByText(/not found|doesn'?t exist|404|something went wrong/i).first();
+    this.backButton = page.getByRole('button', { name: 'Back' });
+    this.profileTab = page.getByRole('tab', { name: 'Profile' });
+    this.peopleTab = page.getByRole('tab', { name: /^People \(/ });
+    this.addToListButton = page.getByRole('button', { name: 'Add to list' });
   }
 
   async waitUntilReady(): Promise<void> {
-    await expect(this.heading).toBeVisible();
-    await this.waitForNoLoaders();
+    await expect(this.profileTab).toBeVisible({ timeout: 30_000 });
   }
 
   async gotoById(id: string): Promise<void> {
-    await this.page.goto(`${this.path}/${id}`);
+    await this.page.goto(routes.company(id));
   }
 
   async expectProfileOf(name: string): Promise<void> {
-    await expect(this.page).toHaveURL(/compan/i);
-    await expect(this.heading).toContainText(name, { ignoreCase: true });
-    for (const label of [/industry/i, /employees|headcount/i, /location|headquarters|hq/i]) {
-      await expect(this.page.getByText(label).first(), `section ${label} should render`).toBeVisible();
-    }
+    await expect(this.page).toHaveURL(urlPatterns.company);
+    await this.waitUntilReady();
+    await expect(this.page.getByText(name, { exact: true }).first()).toBeVisible();
+    await expect(this.profileTab).toHaveAttribute('aria-selected', 'true');
+    await expect(this.peopleTab).toBeVisible();
   }
 }
