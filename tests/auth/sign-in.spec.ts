@@ -26,6 +26,7 @@ test.describe('Sign in / sign out', () => {
     await test.step('protected page is no longer reachable after sign out', async () => {
       await page.goto(routes.search);
       await expect(page).toHaveURL(/sign-in/);
+      await expect(signInPage.emailInput).toBeVisible();
     });
   });
 
@@ -55,6 +56,6 @@ test.describe('Sign in / sign out', () => {
     await expect(page).toHaveURL(/sign-in/);
     await signInPage.signIn(env.userEmail, env.userPassword);
     await appShell.expectSignedIn();
-    await expect(page).toHaveURL(/lists/);
+    await expect(page).toHaveURL(/\/dashboard\/list/);
   });
 });
