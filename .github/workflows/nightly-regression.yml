@@ -81,6 +81,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --project=credits --grep-invert @quarantine
+        env:
+          RUN_CREDIT_TESTS: "1"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
