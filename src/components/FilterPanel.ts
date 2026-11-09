@@ -1,47 +1,56 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
+/**
+ * Left hand "Filters" panel. Each filter opens a sub panel with a combobox
+ * (aria-label "Search <Filter>") and option rows:
+ *   button[data-elements="core-filters-option"][data-ph-capture-attribute-select-filter-option="<key>:<value>"]
+ * with a "+" button next to each option that includes it.
+ */
 export class FilterPanel {
-  readonly root: Locator;
-  readonly appliedChips: Locator;
+  readonly appliedButton: Locator;
   readonly clearAllButton: Locator;
+  readonly appliedTags: Locator;
 
   constructor(private readonly page: Page) {
-    this.root = page
-      .getByTestId('search-filters')
-      .or(page.getByRole('complementary').filter({ hasText: /filter/i }))
-      .or(page.locator('aside').filter({ hasText: /filter/i }))
-      .first();
-    this.appliedChips = page.getByTestId('applied-filter').or(page.locator('[data-applied-filter]'));
-    this.clearAllButton = page.getByRole('button', { name: /clear( all)?( filters)?|reset/i }).first();
+    this.appliedButton = page.getByRole('button', { name: /^Applied \(\d+\)$/ });
+    this.clearAllButton = page.getByRole('button', { name: 'Clear all' });
+    this.appliedTags = page.locator('[data-elements="core-filters-tag-remove"]');
   }
 
-  section(filterName: string): Locator {
-    return this.root
-      .getByRole('button', { name: new RegExp(`^${filterName}`, 'i') })
-      .or(this.root.getByText(new RegExp(`^${filterName}$`, 'i')))
-      .first();
+  async appliedCount(): Promise<number> {
+    const text = await this.appliedButton.innerText();
+    return Number(text.match(/\((\d+)\)/)?.[1] ?? Number.NaN);
   }
 
-  async select(filterName: string, value: string): Promise<void> {
-    await this.section(filterName).click();
-    const searchBox = this.root.getByRole('combobox').or(this.root.getByRole('searchbox')).or(this.root.getByPlaceholder(/search/i));
-    if (await searchBox.first().isVisible()) await searchBox.first().fill(value);
+  private panelHeading(filter: string): Locator {
+    return this.page.getByRole('heading', { name: filter, exact: true });
+  }
 
-    const option = this.page
-      .getByRole('option', { name: new RegExp(value, 'i') })
-      .or(this.root.getByRole('checkbox', { name: new RegExp(value, 'i') }))
-      .or(this.root.getByLabel(new RegExp(value, 'i')))
-      .first();
+  async open(filter: string): Promise<void> {
+    await this.page.getByRole('button', { name: filter, exact: true }).first().click();
+    await expect(this.panelHeading(filter)).toBeVisible();
+  }
+
+  async close(filter: string): Promise<void> {
+    const panel = this.page.locator('div', { has: this.panelHeading(filter) }).filter({ has: this.page.getByRole('button', { name: 'Close' }) }).last();
+    await panel.getByRole('button', { name: 'Close' }).first().click();
+    await expect(this.panelHeading(filter)).toBeHidden();
+  }
+
+  option(key: string, value: string): Locator {
+    return this.page.locator(
+      `button[data-elements="core-filters-option"][data-ph-capture-attribute-select-filter-option="${key}:${value}"]`,
+    );
+  }
+
+  /** Opens the filter, searches for the value and includes it. */
+  async include(filter: string, key: string, value: string): Promise<void> {
+    await this.open(filter);
+    const panel = this.page.locator('div', { has: this.panelHeading(filter) }).filter({ has: this.page.getByRole('combobox') }).last();
+    await panel.getByRole('combobox').last().fill(value);
+    const option = this.option(key, value);
     await expect(option).toBeVisible();
-    await option.click();
-  }
-
-  async expectApplied(value: string): Promise<void> {
-    await expect(
-      this.page.getByTestId('applied-filter').filter({ hasText: new RegExp(value, 'i') })
-        .or(this.page.getByRole('button', { name: new RegExp(`remove ${value}|${value}.*(x|remove)`, 'i') }))
-        .or(this.root.getByRole('checkbox', { name: new RegExp(value, 'i'), checked: true }))
-        .first(),
-    ).toBeVisible();
+    await option.locator('xpath=..').getByRole('button').last().click();
+    await this.close(filter);
   }
 }

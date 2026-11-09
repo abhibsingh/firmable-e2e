@@ -1,32 +1,26 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
+/** Quick view panel that slides in from the right for both companies and people. */
 export class SidePanel {
   readonly root: Locator;
-  readonly title: Locator;
-  readonly closeButton: Locator;
   readonly fullViewLink: Locator;
+  readonly closeButton: Locator;
+  readonly addButton: Locator;
 
-  constructor(private readonly page: Page) {
-    this.root = page
-      .getByTestId('side-panel')
-      .or(page.getByRole('dialog'))
-      .or(page.locator('[data-state="open"][role="complementary"]'))
-      .first();
-    this.title = this.root.getByRole('heading').first();
-    this.closeButton = this.root.getByRole('button', { name: /close/i }).first();
-    this.fullViewLink = this.root
-      .getByRole('link', { name: /view (full )?profile|open|full view|see more/i })
-      .or(this.root.getByRole('button', { name: /view (full )?profile|open|full view|expand/i }))
-      .first();
+  constructor(page: Page) {
+    this.fullViewLink = page.getByRole('link', { name: 'View full profile' });
+    this.root = page.locator('div', { has: this.fullViewLink }).filter({ has: page.getByRole('button', { name: 'Add' }) }).last();
+    this.closeButton = page.getByRole('button', { name: 'Close' }).last();
+    this.addButton = this.root.getByRole('button', { name: 'Add' });
   }
 
   async expectOpenFor(name: string): Promise<void> {
-    await expect(this.root).toBeVisible();
-    await expect(this.title).toContainText(name, { ignoreCase: true });
+    await expect(this.fullViewLink).toBeVisible();
+    await expect(this.root.getByText(name, { exact: true }).first()).toBeVisible();
   }
 
-  section(name: string | RegExp): Locator {
-    return this.root.getByRole('heading', { name }).or(this.root.getByText(name)).first();
+  async fullViewHref(): Promise<string> {
+    return (await this.fullViewLink.getAttribute('href')) ?? '';
   }
 
   async openFullView(): Promise<void> {
@@ -35,11 +29,6 @@ export class SidePanel {
 
   async close(): Promise<void> {
     await this.closeButton.click();
-    await expect(this.root).toBeHidden();
-  }
-
-  async closeWithEscape(): Promise<void> {
-    await this.page.keyboard.press('Escape');
-    await expect(this.root).toBeHidden();
+    await expect(this.fullViewLink).toBeHidden();
   }
 }
