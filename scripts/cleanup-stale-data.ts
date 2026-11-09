@@ -6,8 +6,7 @@ import { ListsPage } from '../src/pages/ListsPage';
 
 async function main() {
   const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL: env.baseUrl });
-  const page = await context.newPage();
+  const page = await (await browser.newContext({ baseURL: env.baseUrl })).newPage();
   let deleted = 0;
   try {
     const signIn = new SignInPage(page);
@@ -16,14 +15,17 @@ async function main() {
     await new AppShell(page).expectSignedIn();
 
     const lists = new ListsPage(page);
-    await lists.goto();
-    const ours = lists.listRows.filter({ hasText: new RegExp(`^\\s*${env.dataPrefix}`) });
-
-    for (let i = 0; i < 200 && (await ours.count()) > 0; i++) {
-      const name = (await ours.first().innerText()).split('\n')[0].trim();
-      console.log(`deleting list: ${name}`);
-      await lists.delete(name);
-      deleted++;
+    const ours = page.locator(`a[data-elements^="${env.dataPrefix}-"]`);
+    for (const tab of [lists.privateTab, lists.sharedTab]) {
+      for (let i = 0; i < 100; i++) {
+        await lists.goto();
+        await tab.click();
+        if ((await ours.count()) === 0) break;
+        const name = (await ours.first().getAttribute('data-elements')) ?? '';
+        console.log(`deleting list: ${name}`);
+        await lists.delete(name);
+        deleted++;
+      }
     }
     console.log(`cleanup done: ${deleted} list(s) removed with prefix "${env.dataPrefix}"`);
   } finally {
