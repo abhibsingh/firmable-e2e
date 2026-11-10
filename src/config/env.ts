@@ -36,6 +36,9 @@ export const env = {
     return required('FIRMABLE_USER_PASSWORD');
   },
 
+  // Separate account for the wrong password test, so failed attempts never lock the shared account
+  lockoutCanaryEmail: process.env.LOCKOUT_CANARY_EMAIL?.trim() || undefined,
+
   dataPrefix: optional('TEST_DATA_PREFIX', 'qa-as'),
   clerkTestDomain: optional('CLERK_TEST_EMAIL_DOMAIN', 'example.com'),
   clerkTestOtp: optional('CLERK_TEST_OTP', '424242'),
