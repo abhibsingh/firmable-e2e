@@ -12,11 +12,11 @@ export class SignInPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.emailInput = page.locator('input[name="identifier"]');
-    this.passwordInput = page.locator('input[name="password"]');
+    this.emailInput = page.locator('input[name="identifier"]:visible').first();
+    this.passwordInput = page.locator('input[name="password"]:visible').first();
     this.continueButton = page.getByRole('button', { name: /^(continue|sign in)$/i }).first();
     this.formError = page
-      .locator('.cl-formFieldErrorText, .cl-alertText, [id$="-error-feedback"], [role="alert"]')
+      .locator('.cl-formFieldErrorText:visible, .cl-alertText:visible, [id$="-error-feedback"]:visible')
       .first();
   }
 
@@ -26,15 +26,15 @@ export class SignInPage extends BasePage {
 
   async signIn(email: string, password: string): Promise<void> {
     await this.emailInput.fill(email);
-    // Clerk shows the password on the same screen or on a second step depending on configuration
-    if (!(await this.passwordInput.isVisible())) await this.continueButton.click();
-    await expect(this.passwordInput).toBeVisible();
-    await this.passwordInput.fill(password);
     await this.continueButton.click();
+    // Clerk moves to /sign-in/factor-one and re-renders, which can wipe a value typed too early
+    await expect(this.page.getByRole('heading', { name: 'Enter your password' })).toBeVisible({ timeout: 30_000 });
+    await expect(async () => {
+      await this.passwordInput.fill(password);
+      await expect(this.passwordInput).toHaveValue(password, { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+    await this.passwordInput.press('Enter');
   }
 
-  async submitInvalid(email: string, password: string): Promise<void> {
-    await this.signIn(email, password);
-    await expect(this.formError).toBeVisible();
-  }
+  readonly passwordStep = () => this.page.getByRole('heading', { name: 'Enter your password' });
 }

@@ -29,11 +29,11 @@ export class SearchPage extends BasePage {
     this.sidePanel = new SidePanel(page);
     this.aiSearchInput = page.getByRole('textbox', { name: 'AI search' });
     this.addToListButton = page.getByRole('button', { name: /^Add to list/ });
-    this.downloadButton = page.getByText(/^Download( \(\d+\))?$/).first();
+    this.downloadButton = page.getByRole('button', { name: /^Download/ }).first();
   }
 
   tab(entity: Entity): Locator {
-    return this.page.getByRole('button', { name: entity === 'companies' ? /^Companies \(/ : /^People \(/ });
+    return this.page.getByRole('button', { name: entity === 'companies' ? /^Companies\s*\(/ : /^People\s*\(/ });
   }
 
   async waitUntilReady(): Promise<void> {
