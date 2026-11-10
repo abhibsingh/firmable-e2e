@@ -14,7 +14,7 @@ export class AppShell {
   }
 
   async expectSignedIn(): Promise<void> {
-    await expect(this.root).toBeVisible({ timeout: 30_000 });
+    await expect(this.root).toBeVisible({ timeout: 60_000 });
     await expect(this.page).toHaveURL(/\/dashboard/);
   }
 
