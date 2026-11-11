@@ -15,13 +15,13 @@ async function main() {
     await new AppShell(page).expectSignedIn();
 
     const lists = new ListsPage(page);
-    const ours = page.locator(`a[data-elements^="${env.dataPrefix}-"]`);
+    const ours = page.getByRole('complementary', { name: 'Lists' }).getByText(new RegExp(`^${env.dataPrefix}-`));
     for (const tab of [lists.privateTab, lists.sharedTab]) {
       for (let i = 0; i < 100; i++) {
         await lists.goto();
         await tab.click();
         if ((await ours.count()) === 0) break;
-        const name = (await ours.first().getAttribute('data-elements')) ?? '';
+        const name = (await ours.first().innerText()).trim();
         console.log(`deleting list: ${name}`);
         await lists.delete(name);
         deleted++;

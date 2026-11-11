@@ -9,6 +9,7 @@ It covers the journeys that matter most to a paying customer (sign up, sign in, 
 |---|---|
 | [docs/COVERAGE.md](docs/COVERAGE.md) | Every required use case, how it is tested, what was skipped and why |
 | [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) | Risk model, flaky test strategy, release process, roadmap |
+| [docs/FINDINGS.md](docs/FINDINGS.md) | Issues found on staging (blank page for unknown ids, accessibility, lockout behaviour) |
 | [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md) | Outline of the 10 minute walkthrough video |
 
 ---
@@ -155,7 +156,20 @@ Required secrets: `FIRMABLE_USER_EMAIL`, `FIRMABLE_USER_PASSWORD`. Optional: `SL
 
 ---
 
-## 6. Staging findings (calibration notes)
+## 6. Latest run on staging
+
+Run locally on 11 Nov 2026, `npx playwright test --workers=1`, about 6.5 minutes:
+
+| Result | Count | Notes |
+|---|---|---|
+| Passed | 37 | Sign in, search and filters, company and person profiles, lists lifecycle and add to list, health, accessibility, helpers |
+| Expected failure | 1 | Unknown company id renders a blank page (finding F1), marked `test.fail` |
+| Skipped by design | 1 | Wrong password test only runs against a separate `LOCKOUT_CANARY_EMAIL` account |
+| Blocked | 2 | Sign up journeys: Clerk rate limited sign ups from the test machine (finding F3); they pass the form steps and stop at Clerk's lock message |
+
+Credit spending tests (reveal, export) were not part of this run; they run with `RUN_CREDIT_TESTS=1`.
+
+## 7. Staging findings (calibration notes)
 
 Calibrated by hand against staging.firmable.com before writing selectors:
 
@@ -166,7 +180,7 @@ Calibrated by hand against staging.firmable.com before writing selectors:
 - The export dialog ticks **Include Tech Intelligence** by default (up to 5 credits per company). The suite always unticks it.
 - The account starts with 25 subscription credits, read from the credits page (subscription card only, the add on card is ignored).
 
-## 7. Known limitations and assumptions
+## 8. Known limitations and assumptions
 
 - Flows I did not exercise by hand (to save credits or data): the reveal confirm step, the rename dialog fields, the Download Centre action button and the exported column names. These are written defensively and are the first place to look if a test fails on the first run.
 - Sign up creates real (test mode) accounts on staging; they carry the prefix so they can be purged. If Firmable exposes a Clerk backend key for staging, teardown can delete them via API (roadmap).

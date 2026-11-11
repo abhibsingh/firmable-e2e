@@ -11,14 +11,13 @@ test.describe('Contact reveal (spends credits)', () => {
     creditGuard,
   }) => {
     await searchPage.open('people');
-    const contact = new ContactReveal(page, searchPage.sidePanel.root);
+    const contact = new ContactReveal(page, page.locator('body'));
 
     let found = false;
-    const rows = Math.min(await searchPage.results.rows.count(), 10);
-    for (let i = 0; i < rows && !found; i++) {
-      await searchPage.previewRow(i);
+    for (let i = 0; i < 10 && !found; i++) {
+      await searchPage.openPerson(i);
       found = await contact.button('email').isVisible();
-      if (!found) await searchPage.sidePanel.close();
+      if (!found) await searchPage.open('people');
     }
     test.skip(!found, 'No person with an unrevealed email in the first 10 rows');
 

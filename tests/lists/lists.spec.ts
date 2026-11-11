@@ -45,7 +45,7 @@ test.describe('Lists', () => {
     await listsPage.goto();
     await listsPage.attemptCreate('   ');
     await expect(listsPage.dialog).toBeVisible();
-    await expect(listsPage.toast(/was successfully created/)).toBeHidden();
+    await expect(listsPage.dialog.getByRole('button', { name: 'Create', exact: true })).toBeVisible();
     await listsPage.dialog.getByRole('button', { name: 'Cancel' }).click();
   });
 });

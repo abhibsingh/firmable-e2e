@@ -1,8 +1,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
- * Left hand "Filters" panel. Each filter opens a sub panel with a combobox
- * (aria-label "Search <Filter>") and option rows:
+ * Left "Filters" panel. Each filter row is covered by an overlay button[aria-label="<filter>"][data-ph-capture-attribute-open-filter].
+ * Opening one shows a search box [data-inputs="core-filters"] and option rows:
  *   button[data-elements="core-filters-option"][data-ph-capture-attribute-select-filter-option="<key>:<value>"]
  * with a "+" button next to each option that includes it.
  */
@@ -10,11 +10,13 @@ export class FilterPanel {
   readonly appliedButton: Locator;
   readonly clearAllButton: Locator;
   readonly appliedTags: Locator;
+  readonly searchBox: Locator;
 
   constructor(private readonly page: Page) {
     this.appliedButton = page.getByRole('button', { name: /^Applied \(\d+\)$/ });
-    this.clearAllButton = page.getByRole('button', { name: 'Clear all' });
+    this.clearAllButton = page.getByRole('button', { name: 'Clear all' }).or(page.getByText('Clear all', { exact: true })).first();
     this.appliedTags = page.locator('[data-elements="core-filters-tag-remove"]');
+    this.searchBox = page.locator('[data-inputs="core-filters"]:visible').last();
   }
 
   async appliedCount(): Promise<number> {
@@ -22,19 +24,21 @@ export class FilterPanel {
     return Number(text.match(/\((\d+)\)/)?.[1] ?? Number.NaN);
   }
 
-  private panelHeading(filter: string): Locator {
-    return this.page.getByRole('heading', { name: filter, exact: true });
+  /** Each filter row has a transparent overlay button labelled with the filter name. */
+  item(filter: string): Locator {
+    return this.page.locator(`button[data-ph-capture-attribute-open-filter][aria-label="${filter}"]`).first();
   }
 
   async open(filter: string): Promise<void> {
-    await this.page.getByRole('button', { name: filter, exact: true }).first().click();
-    await expect(this.panelHeading(filter)).toBeVisible();
+    await this.item(filter).click();
+    await expect(this.searchBox).toBeVisible();
   }
 
-  async close(filter: string): Promise<void> {
-    const panel = this.page.locator('div', { has: this.panelHeading(filter) }).filter({ has: this.page.getByRole('button', { name: 'Close' }) }).last();
-    await panel.getByRole('button', { name: 'Close' }).first().click();
-    await expect(this.panelHeading(filter)).toBeHidden();
+  async close(): Promise<void> {
+    const close = this.page.getByRole('button', { name: 'Close' }).last();
+    if (await close.isVisible()) await close.click();
+    else await this.page.keyboard.press('Escape');
+    await expect(this.searchBox).toBeHidden();
   }
 
   option(key: string, value: string): Locator {
@@ -43,14 +47,13 @@ export class FilterPanel {
     );
   }
 
-  /** Opens the filter, searches for the value and includes it. */
   async include(filter: string, key: string, value: string): Promise<void> {
     await this.open(filter);
-    const panel = this.page.locator('div', { has: this.panelHeading(filter) }).filter({ has: this.page.getByRole('combobox') }).last();
-    await panel.getByRole('combobox').last().fill(value);
+    await this.searchBox.fill(value);
     const option = this.option(key, value);
     await expect(option).toBeVisible();
     await option.locator('xpath=..').getByRole('button').last().click();
-    await this.close(filter);
+    await expect(this.appliedButton).not.toHaveText('Applied (0)');
+    await this.close();
   }
 }

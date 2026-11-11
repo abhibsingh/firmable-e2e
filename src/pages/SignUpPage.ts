@@ -21,29 +21,35 @@ export class SignUpPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.firstName = page.locator('input[name="firstName"]');
-    this.lastName = page.locator('input[name="lastName"]');
-    this.email = page.locator('input[name="emailAddress"]');
-    this.phone = page.locator('input[name="phoneNumber"]');
-    this.password = page.locator('input[name="password"]');
+    this.firstName = page.locator('input[name="firstName"]:visible').first();
+    this.lastName = page.locator('input[name="lastName"]:visible').first();
+    this.email = page.locator('input[name="emailAddress"]:visible').first();
+    this.phone = page.locator('input[name="phoneNumber"]:visible').first();
+    this.password = page.locator('input[name="password"]:visible').first();
     this.submit = page.getByRole('button', { name: 'Continue', exact: true });
     this.otpInput = page.locator('input[autocomplete="one-time-code"]').or(page.getByLabel(/verification code|enter code/i)).first();
-    this.formError = page.locator('.cl-formFieldErrorText, .cl-alertText, [id$="-error-feedback"], [role="alert"]').first();
+    this.formError = page.locator('.cl-formFieldErrorText:visible, .cl-alertText:visible, [id$="-error-feedback"]:visible').first();
   }
 
   async waitUntilReady(): Promise<void> {
     await expect(this.email).toBeVisible({ timeout: 30_000 });
   }
 
-  /** Clerk test numbers are +1 (XXX) 555-0100 to 0199, so switch the picker to the US first. */
+  /**
+   * Clerk test numbers are +1 (XXX) 555 0100 to 0199 and each can belong to only one account,
+   * so pick a random one. Typing "+1" switches the country picker to US, then the field is cleared
+   * and only the 10 local digits are typed.
+   */
   private async fillTestPhone(): Promise<void> {
-    const required = (await this.phone.getAttribute('required')) !== null || (await this.phone.getAttribute('aria-required')) === 'true';
-    if (!required) return;
-    const picker = this.page.getByRole('button', { name: /^[A-Z]{2}$/ }).first();
-    await picker.click();
-    await this.page.keyboard.type('United States');
-    await this.page.getByRole('option', { name: /United States/ }).first().click();
-    await this.phone.fill('2015550100');
+    if (!(await this.phone.isVisible())) return;
+    const areas = [201, 202, 203, 205, 206, 207, 208, 209, 210, 212, 213, 214, 215, 216, 217];
+    const area = areas[Math.floor(Math.random() * areas.length)];
+    const line = String(100 + Math.floor(Math.random() * 100)).padStart(4, '0');
+    await this.phone.click();
+    await this.phone.pressSequentially('+1');
+    await this.phone.fill('');
+    await this.phone.pressSequentially(`${area}555${line}`);
+    await expect(this.phone).toHaveValue(new RegExp(`${area}.*555.*${line.slice(-2)}$`));
   }
 
   async fillDetails(user: NewUser): Promise<void> {
@@ -56,7 +62,9 @@ export class SignUpPage extends BasePage {
   }
 
   async enterVerificationCode(code: string): Promise<void> {
-    await expect(this.otpInput).toBeVisible();
+    const locked = this.page.getByText(/temporarily locked|too many requests/i).first();
+    await expect(this.otpInput.or(locked)).toBeVisible({ timeout: 20_000 });
+    if (await locked.isVisible()) throw new Error(`Clerk rate limited sign up from this machine: "${await locked.innerText()}"`);
     await this.otpInput.click();
     await this.page.keyboard.type(code);
   }

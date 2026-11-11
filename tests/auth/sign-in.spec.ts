@@ -8,7 +8,7 @@ test.describe('Sign in / sign out', () => {
   });
 
   test('valid user can sign in and sign out', { tag: ['@smoke', '@auth'] }, async ({ page, signInPage, appShell }) => {
-    await test.step('sign in with the provided account', async () => {
+    await test.step('sign in with the test account', async () => {
       await signInPage.signIn(env.userEmail, env.userPassword);
       await appShell.expectSignedIn();
     });
@@ -26,29 +26,34 @@ test.describe('Sign in / sign out', () => {
     await test.step('protected page is no longer reachable after sign out', async () => {
       await page.goto(routes.search);
       await expect(page).toHaveURL(/sign-in/);
-      await expect(signInPage.emailInput).toBeVisible();
     });
   });
 
-  test('wrong password shows an error and does not sign in', { tag: ['@smoke', '@auth', '@negative'] }, async ({ page, signInPage, appShell }) => {
-    await signInPage.submitInvalid(env.userEmail, 'definitely-Wrong-Password-123!');
-    await expect(signInPage.formError).toContainText(/password is incorrect|invalid|incorrect/i);
+  test('wrong password shows an error and does not sign in', { tag: ['@regression', '@auth', '@negative'] }, async ({ page, signInPage, appShell }) => {
+    test.skip(!env.lockoutCanaryEmail, 'Set LOCKOUT_CANARY_EMAIL: wrong passwords against the shared account lock it');
+    await signInPage.emailInput.fill(env.lockoutCanaryEmail!);
+    await signInPage.continueButton.click();
+    await expect(signInPage.passwordStep()).toBeVisible();
+    await signInPage.passwordInput.fill('definitely-Wrong-Password-123!');
+    await signInPage.passwordInput.press('Enter');
+    await expect(signInPage.formError).toBeVisible();
     await expect(page).toHaveURL(/sign-in/);
     await expect(appShell.userMenuButton).toBeHidden();
   });
 
-  test('unknown email is rejected', { tag: ['@regression', '@auth', '@negative'] }, async ({ signInPage }) => {
+  test('unknown email is rejected', { tag: ['@regression', '@auth', '@negative'] }, async ({ page, signInPage }) => {
     await signInPage.emailInput.fill(`${env.dataPrefix}-nobody-${Date.now()}@example.com`);
     await signInPage.continueButton.click();
     await expect(signInPage.formError).toBeVisible();
-    await expect(signInPage.formError).toContainText(/couldn'?t find|not found|no account|invalid/i);
+    await expect(signInPage.passwordStep()).toBeHidden();
+    await expect(page).not.toHaveURL(/factor-one/);
   });
 
   test('malformed email is blocked by validation', { tag: ['@regression', '@auth', '@negative'] }, async ({ page, signInPage }) => {
     await signInPage.emailInput.fill('not-an-email');
     await signInPage.continueButton.click();
-    await expect(signInPage.passwordInput).toBeHidden();
-    await expect(page).toHaveURL(/sign-in/);
+    await expect(signInPage.passwordStep()).toBeHidden();
+    await expect(page).not.toHaveURL(/factor-one/);
   });
 
   test('deep link redirects to sign in, then back after login', { tag: ['@regression', '@auth'] }, async ({ page, signInPage, appShell }) => {

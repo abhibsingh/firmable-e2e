@@ -1,10 +1,10 @@
 import { test } from '../../src/fixtures/test';
 
 test.describe('Person profile', () => {
-  test('full view from the quick view matches the selected person', { tag: ['@smoke', '@profile'] }, async ({ searchPage, personProfile }) => {
+  test('full view matches the selected person', { tag: ['@smoke', '@profile'] }, async ({ searchPage, personProfile }) => {
     await searchPage.open('people');
-    const name = await searchPage.previewRow(0);
-    await searchPage.sidePanel.openFullView();
+    const name = await searchPage.openPerson(0);
+    if (await searchPage.sidePanel.fullViewLink.isVisible()) await searchPage.sidePanel.openFullView();
     await personProfile.expectProfileOf(name);
   });
 });

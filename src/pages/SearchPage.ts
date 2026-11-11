@@ -28,12 +28,12 @@ export class SearchPage extends BasePage {
     this.results = new ResultsTable(page);
     this.sidePanel = new SidePanel(page);
     this.aiSearchInput = page.getByRole('textbox', { name: 'AI search' });
-    this.addToListButton = page.getByRole('button', { name: /^Add to list/ });
-    this.downloadButton = page.getByText(/^Download( \(\d+\))?$/).first();
+    this.addToListButton = page.getByRole('button', { name: /^Add to list( \(\d+\))?$/ }).and(page.locator(':not([aria-label="Add to list"])')).first();
+    this.downloadButton = page.getByRole('button', { name: /^Download/ }).first();
   }
 
   tab(entity: Entity): Locator {
-    return this.page.getByRole('button', { name: entity === 'companies' ? /^Companies \(/ : /^People \(/ });
+    return this.page.getByRole('button', { name: entity === 'companies' ? /^Companies\s*\(/ : /^People\s*\(/ });
   }
 
   async waitUntilReady(): Promise<void> {
@@ -89,22 +89,32 @@ export class SearchPage extends BasePage {
     return this.expectCountChange(entity, before);
   }
 
+  /**
+   * People rows do not open a quick view from a plain cell, so open the person through the name link.
+   * Lands on either the quick view or the full profile; both are accepted.
+   */
+  async openPerson(index: number): Promise<string> {
+    const name = await this.results.name(index);
+    await this.results.nameLink(index).click();
+    await expect(this.sidePanel.fullViewLink.or(this.page.getByRole('button', { name: 'Back' }))).toBeVisible({ timeout: 20_000 });
+    return name;
+  }
+
   async previewRow(index: number): Promise<string> {
     const name = await this.results.openPreview(index);
     await this.sidePanel.expectOpenFor(name);
     return name;
   }
 
-  /** Popover: "Search or create a new list". Picks an existing list by name. */
+  /** Popover: "Search or create a new list". Picks the existing list and waits for the add call to succeed. */
   async addSelectedToList(listName: string): Promise<void> {
     await this.addToListButton.click();
-    const box = this.page.getByPlaceholder('Search or create a new list');
-    await box.fill(listName);
+    await this.page.getByPlaceholder('Search or create a new list').fill(listName);
+    const added = this.page.waitForResponse((r) => /\/internal\/list\/[^/]+\/profiles\/add/.test(r.url()) && r.request().method() === 'POST');
     await this.page.getByText(listName, { exact: true }).last().click();
     const confirm = this.page.getByRole('button', { name: /^(add|save|done|confirm)$/i }).last();
-    await expect(confirm.or(this.page.getByText(/added|saved/i).first())).toBeVisible();
-    if (await confirm.isVisible()) await confirm.click();
-    await expect(this.page.getByText(/added|saved/i).first()).toBeVisible();
+    if (await confirm.isVisible().catch(() => false)) await confirm.click();
+    expect((await added).ok(), 'add to list API call').toBe(true);
   }
 
   /** "Export as XLSX" dialog. Tech Intelligence is unticked so we only spend 1 credit per record. */

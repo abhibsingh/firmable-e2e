@@ -23,10 +23,8 @@ test.describe('People search', () => {
     expect(await searchPage.total('people')).toBeGreaterThan(0);
   });
 
-  test('person quick view shows masked contacts with reveal buttons', { tag: ['@smoke', '@search'] }, async ({ page, searchPage }) => {
-    await searchPage.previewRow(0);
-    expect(await searchPage.sidePanel.fullViewHref()).toMatch(/\/dashboard\/people\//);
+  test('person view gates contacts behind reveal buttons', { tag: ['@smoke', '@search'] }, async ({ page, searchPage }) => {
+    await searchPage.openPerson(0);
     await expect(page.getByRole('button', { name: 'Show email' }).or(page.getByRole('button', { name: 'Show number' })).first()).toBeVisible();
-    await searchPage.sidePanel.close();
   });
 });

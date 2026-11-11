@@ -11,7 +11,7 @@ export class ResultsTable {
     this.root = page.locator('table.mantine-Table-root').first();
     this.rows = this.root.locator('tbody tr').filter({ has: page.getByRole('checkbox') });
     this.pager = page.getByText(/^\d[\d,]*-\d[\d,]* of [\d,]+$|^0-0 of 0$/).first();
-    this.emptyState = page.getByText(/no records to display|no (results|companies|people) (found|added)|create your first/i).first();
+    this.emptyState = page.getByText(/^0-0 of 0$|no records to display|no (results|companies|people) (found|added)|create your first/i).first();
   }
 
   async waitForLoaded(): Promise<void> {
@@ -27,8 +27,9 @@ export class ResultsTable {
     return this.row(index).locator('td').nth(1).getByRole('link').first();
   }
 
+  /** Name from the link in the name cell (the cell also shows an initials avatar). */
   async name(index: number): Promise<string> {
-    return (await this.row(index).locator('td').nth(1).innerText()).replace(/^[A-Z]{1,2}\n/, '').trim();
+    return (await this.nameLink(index).innerText()).trim();
   }
 
   async names(limit = 10): Promise<string[]> {

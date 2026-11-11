@@ -30,7 +30,8 @@ test.describe('Company profile', () => {
     await companyProfile.expectProfileOf(name);
   });
 
-  test('unknown company id does not crash the app', { tag: ['@regression', '@profile', '@negative'] }, async ({ page, companyProfile }) => {
+  test('unknown company id does not crash the app', { tag: ['@regression', '@profile', '@negative', '@known-defect'] }, async ({ page, companyProfile }) => {
+    test.fail(true, 'FINDING F1 (docs/FINDINGS.md): an unknown company id renders a blank page with no app shell or not found message');
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await companyProfile.gotoById('does-not-exist-000');
